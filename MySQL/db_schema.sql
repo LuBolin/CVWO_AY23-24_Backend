@@ -17,6 +17,9 @@ CREATE TABLE Posts (
     id INT NOT NULL AUTO_INCREMENT,
     author_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
+    topic enum('General', 'Store request', 'Market research') NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    content TEXT NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (author_id) REFERENCES Users(id)
 );
@@ -26,6 +29,7 @@ CREATE TABLE Comments (
     author_id INT NOT NULL,
     post_id INT NOT NULL,
     content TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     FOREIGN KEY (author_id) REFERENCES Users(id),
     FOREIGN KEY (post_id) REFERENCES Posts(id)

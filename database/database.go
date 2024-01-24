@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"os"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -9,12 +10,11 @@ import (
 var conn *sql.DB // Caps first letter to export variable
 
 func InitDB() *sql.DB {
-	// data source name
-	db_user := "root"
-	db_pwd := "password"
-	db_host := "localhost"
-	db_port := "3306"
-	db_name := "CVWO"
+	db_user := os.Getenv("DB_USER")
+	db_pwd := os.Getenv("DB_PASSWORD")
+	db_host := os.Getenv("DB_HOST")
+	db_port := os.Getenv("DB_PORT")
+	db_name := os.Getenv("DB_NAME")
 	dsn := db_user + ":" + db_pwd +
 		"@tcp(" + db_host + ":" + db_port + ")/" + db_name
 
