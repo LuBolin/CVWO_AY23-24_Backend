@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
+	"log"
 	"os"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -26,6 +28,8 @@ func InitDB() *sql.DB {
 
 	err = conn.Ping()
 	if err != nil {
+		fmt.Println(err)
+		log.Fatal(err)
 		panic("Failed to ping database")
 	}
 
