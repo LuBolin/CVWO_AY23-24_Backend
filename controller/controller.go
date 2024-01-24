@@ -166,7 +166,7 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 		argNumber++
 	}
 
-	if topic != "All" {
+	if topic != "" && topic != "All" {
 		conditions = append(conditions, fmt.Sprintf("Posts.topic = $%d", argNumber))
 		args = append(args, topic)
 		argNumber++
