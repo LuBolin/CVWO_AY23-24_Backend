@@ -14,6 +14,7 @@ import (
 
 // PostForm(x)'s x has to match front ebd's URLSearchParams's variable name
 
+// username, password(unhashed), email
 func SignUp(c *gin.Context, db_conn *sql.DB) {
 	username := c.PostForm("username")
 	password := c.PostForm("password")
@@ -23,16 +24,12 @@ func SignUp(c *gin.Context, db_conn *sql.DB) {
 	fmt.Printf("Password:" + password + "\n")
 
 	var usernameExists, emailExists int
-	query := `
-		SELECT
-			CASE WHEN EXISTS (SELECT 1 FROM Users WHERE username = $1) THEN 1 ELSE 0 END AS username_exists,
-			CASE WHEN EXISTS (SELECT 1 FROM Users WHERE email = $2) THEN 1 ELSE 0 END AS email_exists
-	`
-	err := db_conn.QueryRow(query, username, email).Scan(&usernameExists, &emailExists)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
-		return
-	}
+	query := `SELECT
+		MAX(CASE WHEN username = ? THEN 1 ELSE 0 END) AS username_exists,
+		MAX(CASE WHEN email = ? THEN 1 ELSE 0 END) AS email_exists
+  		FROM Users;`
+	db_conn.QueryRow(query, username, email).
+		Scan(&usernameExists, &emailExists)
 
 	if usernameExists == 1 {
 		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "Username already exists"})
@@ -47,24 +44,29 @@ func SignUp(c *gin.Context, db_conn *sql.DB) {
 
 	tx, err := db_conn.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err})
 		return
 	}
 
 	var sqlError = func() {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "Internal Server Error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err})
 	}
 
-	userInsertQuery := "INSERT INTO Users (username, email) VALUES ($1, $2) RETURNING id"
-	row := tx.QueryRow(userInsertQuery, username, email)
-	var userID int
-	if err := row.Scan(&userID); err != nil {
+	userInsertQuery := "INSERT INTO Users (username, email) VALUES (?, ?)"
+	result, err := tx.Exec(userInsertQuery, username, email)
+	if err != nil {
 		sqlError()
 		return
 	}
 
-	passwordInsertQuery := "INSERT INTO Passwords (user_id, hashed, salt) VALUES ($1, $2, $3)"
+	userID, err := result.LastInsertId()
+	if err != nil {
+		sqlError()
+		return
+	}
+
+	passwordInsertQuery := "INSERT INTO Passwords (user_id, hashed, salt) VALUES (?, ?, ?)"
 	_, err = tx.Exec(passwordInsertQuery, userID, hashed, salt)
 	if err != nil {
 		sqlError()
@@ -88,11 +90,10 @@ func SignIn(c *gin.Context, db_conn *sql.DB) {
 	var hashed []byte
 	var salt []byte
 
-	query := `
-		SELECT u.id, p.hashed, p.salt
-		FROM Passwords p
-		JOIN Users u ON p.user_id = u.id
-		WHERE u.username = $1
+	query := `SELECT u.id, p.hashed, p.salt
+    	FROM Passwords p
+    	JOIN Users u ON p.user_id = u.id
+    	WHERE u.username = ?
 	`
 	err := db_conn.QueryRow(query, username).Scan(&user_id, &hashed, &salt)
 	if err == sql.ErrNoRows {
@@ -149,9 +150,10 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 		return
 	}
 
+	//region getPosts. I realized regions dont work with golang in VSCode?
 	baseQuery :=
 		`SELECT Posts.id, Posts.title, Posts.topic, Users.username, 
-			TO_CHAR(Posts.created_at, 'YYYY-MM-DD HH24:MI:SS')
+			DATE_FORMAT(Posts.created_at, '%Y-%m-%d %T')
 		FROM Posts
 		JOIN Users ON Posts.author_id = Users.id
 		WHERE 1=1`
@@ -160,12 +162,12 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 	var conditions []string
 
 	if title != "" {
-		conditions = append(conditions, "Posts.title ILIKE $1")
+		conditions = append(conditions, "Posts.title LIKE ?")
 		args = append(args, "%"+title+"%")
 	}
 
 	if topic != "" && topic != "All" {
-		conditions = append(conditions, "Posts.topic = $2")
+		conditions = append(conditions, "Posts.topic = ?")
 		args = append(args, topic)
 	}
 
@@ -174,10 +176,11 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 		queryCondition = " AND " + strings.Join(conditions, " AND ")
 	}
 
-	finalQuery := fmt.Sprintf("%s%s LIMIT $3 OFFSET $4", baseQuery, queryCondition)
-	args = append(args, chunkSize, offset*chunkSize)
+	finalQuery := fmt.Sprintf("%s%s LIMIT ? OFFSET ?", baseQuery, queryCondition)
+	new_post_args := args // inserting of comment need to preserve the args without chunkSize and offset
+	new_post_args = append(args, chunkSize, offset*chunkSize)
 
-	rows, err := db_conn.Query(finalQuery, args...)
+	rows, err := db_conn.Query(finalQuery, new_post_args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying the database"})
 		return
@@ -195,7 +198,7 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 		)
 		err := rows.Scan(&id, &title, &topic, &author, &created_at)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 			return
 		}
 
@@ -213,12 +216,13 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error iterating the rows"})
 		return
 	}
+	//endregion
 
 	countQuery := fmt.Sprintf(
 		"SELECT COUNT(*) FROM Posts JOIN Users ON Posts.author_id = Users.id WHERE 1=1%s", queryCondition)
 
 	var totalPosts int
-	err = db_conn.QueryRow(countQuery, args[0:len(args)-2]...).Scan(&totalPosts)
+	err = db_conn.QueryRow(countQuery, args...).Scan(&totalPosts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying total post count"})
 		return
@@ -234,16 +238,26 @@ func NewPost(c *gin.Context, db_conn *sql.DB) {
 	content := c.PostForm("content")
 	postQuery := `
         INSERT INTO Posts (author_id, title, topic, content)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id
+        VALUES (?, ?, ?, ?)
     `
-	var postID int
-	err := db_conn.QueryRow(postQuery, user_id, title, topic, content).Scan(&postID)
+	postResult, err := db_conn.Exec(postQuery, user_id, title, topic, content)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "Error creating the post"})
 		return
 	}
-
+	postID, _ := postResult.LastInsertId() // get latest post id, which is what we inserted
+	// previously, the post did not include content, but just had the original content as another comment.
+	// this is legacy code, to remind me of how the original structure worked.
+	// commentQuery := `
+	//     INSERT INTO Comments (author_id, post_id, content)
+	//     VALUES (?, ?, ?)
+	// `
+	// _, err = db_conn.Exec(commentQuery, user_id, postID, content)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "Error initializing post content"})
+	// 	return
+	// }
 	c.JSON(http.StatusOK, gin.H{"code": 200, "new_post_id": postID})
 }
 
@@ -272,10 +286,10 @@ func GetPost(c *gin.Context, db_conn *sql.DB) {
 	postQuery := `
         SELECT 
             p.title, p.topic, u.username, p.content,
-            TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
+            DATE_FORMAT(p.created_at, '%Y-%m-%d %T') as created_at
         FROM Posts p
         JOIN Users u ON p.author_id = u.id
-        WHERE p.id = $1
+        WHERE p.id = ?
     `
 	row := db_conn.QueryRow(postQuery, postID)
 	var (
@@ -304,13 +318,15 @@ func GetPost(c *gin.Context, db_conn *sql.DB) {
 	commentsQuery := `
         SELECT 
             c.id, c.content, u.username, u.id,
-            TO_CHAR(c.created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
+            DATE_FORMAT(c.created_at, '%Y-%m-%d %T') as created_at
         FROM Comments c
         JOIN Users u ON c.author_id = u.id
-        WHERE c.post_id = $1
+        WHERE c.post_id = ?
 		ORDER BY created_at ASC
-        LIMIT $2 OFFSET $3
+        LIMIT ? OFFSET ?
     `
+	// get the oldest comments first
+	// remember that ORDER BY comes before LIMIT and OFFSET
 
 	limit := chunkSize
 	offset = offset * chunkSize
@@ -351,14 +367,11 @@ func GetPost(c *gin.Context, db_conn *sql.DB) {
 		return
 	}
 
-	countQuery := `
-		SELECT COUNT(*) 
-		FROM Comments 
-		WHERE post_id = $1
-	`
+	countQuery := fmt.Sprintf(
+		"SELECT COUNT(*) FROM Comments JOIN Posts ON Comments.post_id = Posts.id WHERE Posts.id = %s", postID)
 
 	var totalComments int
-	err = db_conn.QueryRow(countQuery, postID).Scan(&totalComments)
+	err = db_conn.QueryRow(countQuery).Scan(&totalComments)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying total post count"})
 		return
@@ -373,7 +386,7 @@ func NewComment(c *gin.Context, db_conn *sql.DB) {
 	content := c.PostForm("content")
 	commentQuery := `
 		INSERT INTO Comments (author_id, post_id, content)
-		VALUES ($1, $2, $3)
+		VALUES (?, ?, ?)
 	`
 	_, err := db_conn.Exec(commentQuery, user_id, postID, content)
 	if err != nil {
@@ -392,7 +405,7 @@ func UpdateComment(c *gin.Context, db_conn *sql.DB) {
 
 	// Check if the comment belongs to the user trying to update it
 	var dbUserID int
-	checkOwnerQuery := "SELECT author_id FROM Comments WHERE id = $1 AND post_id = $2"
+	checkOwnerQuery := "SELECT author_id FROM Comments WHERE id = ? AND post_id = ?"
 	err := db_conn.QueryRow(checkOwnerQuery, commentID, postID).Scan(&dbUserID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "Comment not found"})
@@ -409,8 +422,8 @@ func UpdateComment(c *gin.Context, db_conn *sql.DB) {
 
 	updateQuery := `
 		UPDATE Comments 
-		SET content = $1
-		WHERE id = $2 AND post_id = $3
+		SET content = ?
+		WHERE id = ? AND post_id = ?
 	`
 	_, err = db_conn.Exec(updateQuery, content, commentID, postID)
 	if err != nil {
@@ -429,7 +442,7 @@ func DeleteComment(c *gin.Context, db_conn *sql.DB) {
 
 	// Check if the comment belongs to the user trying to delete it
 	var dbUserID int
-	checkOwnerQuery := "SELECT author_id FROM Comments WHERE id = $1 AND post_id = $2"
+	checkOwnerQuery := "SELECT author_id FROM Comments WHERE id = ? AND post_id = ?"
 	err := db_conn.QueryRow(checkOwnerQuery, commentID, postID).Scan(&dbUserID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "Comment not found"})
@@ -446,7 +459,7 @@ func DeleteComment(c *gin.Context, db_conn *sql.DB) {
 
 	deleteQuery := `
 		DELETE FROM Comments
-		WHERE id = $1 AND post_id = $2
+		WHERE id = ? AND post_id = ?
 	`
 	_, err = db_conn.Exec(deleteQuery, commentID, postID)
 	if err != nil {
