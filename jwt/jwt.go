@@ -104,18 +104,18 @@ func GetUserIdFromToken(c *gin.Context) int {
 	}
 }
 
-func GetUsernameFromToken(c *gin.Context) int {
+func GetUsernameFromToken(c *gin.Context) string {
 	const BearerSchema = "Bearer "
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Auth token required"})
 		c.Abort()
-		return -1
+		return ""
 	}
 	if len(authHeader) <= len(BearerSchema) || authHeader[:len(BearerSchema)] != BearerSchema {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Invalid auth header format"})
 		c.Abort()
-		return -1
+		return ""
 	}
 	tokenString := authHeader[len(BearerSchema):]
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -128,17 +128,17 @@ func GetUsernameFromToken(c *gin.Context) int {
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Invalid auth token"})
 		c.Abort()
-		return -1
+		return ""
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if ok && token.Valid {
 		c.Next()
-		user_id := int(claims["username"].(float64))
-		return user_id
+		username := claims["username"].(string)
+		return username
 	} else {
 		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Invalid auth token"})
 		c.Abort()
-		return -1
+		return ""
 	}
 }
