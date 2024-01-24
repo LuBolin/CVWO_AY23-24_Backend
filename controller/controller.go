@@ -465,5 +465,6 @@ func DeleteComment(c *gin.Context, db_conn *sql.DB) {
 func CheckJWT(c *gin.Context, db_conn *sql.DB) {
 	// already authenticated by ValidateJWT middleware
 	user_id := jwt.GetUserIdFromToken(c)
-	c.JSON(http.StatusOK, gin.H{"user_id": user_id})
+	username := jwt.GetUsernameFromToken(c)
+	c.JSON(http.StatusOK, gin.H{"user_id": user_id, "username": username})
 }
