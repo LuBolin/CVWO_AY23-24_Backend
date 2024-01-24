@@ -158,15 +158,18 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 
 	var args []interface{}
 	var conditions []string
+	argNumber := 1
 
 	if title != "" {
-		conditions = append(conditions, "Posts.title ILIKE $1")
+		conditions = append(conditions, fmt.Sprintf("Posts.title ILIKE $%d", argNumber))
 		args = append(args, "%"+title+"%")
+		argNumber++
 	}
 
-	if topic != "" && topic != "All" {
-		conditions = append(conditions, "Posts.topic = $2")
+	if topic != "All" {
+		conditions = append(conditions, fmt.Sprintf("Posts.topic = $%d", argNumber))
 		args = append(args, topic)
+		argNumber++
 	}
 
 	queryCondition := ""
@@ -174,7 +177,10 @@ func GetForum(c *gin.Context, db_conn *sql.DB) {
 		queryCondition = " AND " + strings.Join(conditions, " AND ")
 	}
 
-	finalQuery := fmt.Sprintf("%s%s LIMIT $3 OFFSET $4", baseQuery, queryCondition)
+	limitArgNumber := argNumber
+	offsetArgNumber := argNumber + 1
+
+	finalQuery := fmt.Sprintf("%s%s LIMIT $%d OFFSET $%d", baseQuery, queryCondition, limitArgNumber, offsetArgNumber)
 	args = append(args, chunkSize, offset*chunkSize)
 
 	rows, err := db_conn.Query(finalQuery, args...)
