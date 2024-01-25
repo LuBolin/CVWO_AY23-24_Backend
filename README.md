@@ -44,6 +44,7 @@ Backward compatibility has not been tested.
 #### Environment Variables:
 These can be set in the .env file.
 When hosting online, for example in the case of render.com, you can set them from the hosting dashboard.
+Set these in the .env or in your environment variables, before building and running the golang server.
 
 - DB_HOST: database host name. If local, this will be localhost.
 - DB_PORT: database port. The default port of PostgreSQL is 5432.
@@ -54,12 +55,11 @@ When hosting online, for example in the case of render.com, you can set them fro
   For the onrender.com example, this is https://localelookout.onrender.com.
 - HMAC_SECRET: arbitrary secret string. This is used in hashing.
 
-#### Build command: 
+If you are on windows, you can add .exe incase your cmd gives errors.
+The running would fail if the database has not been setup.
+#### Build & Run command: 
 ```bash
-go build -tags netgo -ldflags '-s -w' -o app
-```
-
-#### Start command:
-```bash
+go install
+go build -o app
 ./app
 ```
