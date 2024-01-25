@@ -383,8 +383,8 @@ func NewComment(c *gin.Context, db_conn *sql.DB) {
 	`
 	_, err := db_conn.Exec(commentQuery, user_id, postID, content)
 	if err != nil {
-		fmt.Println(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "Error creating the comment"})
+		c.JSON(http.StatusInternalServerError,
+			gin.H{"code": 500, "msg": "Error creating the comment with error: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200})

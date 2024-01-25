@@ -18,7 +18,7 @@ func GenToken(c *gin.Context, username string, userID int) (tokenString string) 
 	claims["authorized"] = true
 	claims["username"] = username
 	claims["user_id"] = userID
-	claims["exp"] = time.Now().Add(time.Hour * 12).Unix() // expiry time is 12 hours
+	claims["exp"] = time.Now().Add(time.Minute * 30).Unix() // expiry time is 30 minutes
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
